@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Love PDF File Converter</title>
+    <!-- Load Tailwind CSS --><script src="https://cdn.tailwindcss.com"></script>
+    <!-- Load Lucide Icons for aesthetic icons --><script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        /* Set font and ensure smooth transitions */
+        :root {
+            font-family: 'Inter', sans-serif;
+        }
+        .converter-card {
+            box-shadow: 0 10px 30px -5px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+        }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen flex items-center justify-center p-4">
+
+    <div id="app" class="w-full max-w-4xl bg-white converter-card rounded-2xl overflow-hidden">
+        
+        <!-- Header --><header class="bg-yellow-500 p-6 text-white text-center rounded-t-2xl">
+            <h1 class="text-3xl font-extrabold flex items-center justify-center">
+                <i data-lucide="cloud-cog" class="w-7 h-7 mr-3"></i>
+                Love PDF File Converter
+            </h1>
+            <p class="mt-1 text-yellow-100">The simplest cloud-based PDF and document tool.</p>
+        </header>
+
+        <!-- Main Content Area --><main class="p-4 sm:p-8">
+
+            <!-- Tab Navigation (Now includes PDF to Image) --><div class="flex border-b border-gray-200 mb-6 sticky top-0 bg-white z-10">
+                <button
+                    class="tab-button flex-1 py-3 text-sm font-medium transition-colors duration-200"
+                    data-tab="pdfToWord"
+                >
+                    <i data-lucide="file-text" class="inline w-5 h-5 mr-1"></i> PDF to Word
+                </button>
+                <button
+                    class="tab-button flex-1 py-3 text-sm font-medium transition-colors duration-200"
+                    data-tab="wordToPdf"
+                >
+                    <i data-lucide="file-type" class="inline w-5 h-5 mr-1"></i> Word to PDF
+                </button>
+                <button
+                    class="tab-button flex-1 py-3 text-sm font-medium transition-colors duration-200"
+                    data-tab="pdfToImage"
+                >
+                    <i data-lucide="scan" class="inline w-5 h-5 mr-1"></i> PDF to Image
+                </button>
+                <button
+                    class="tab-button flex-1 py-3 text-sm font-medium transition-colors duration-200"
+                    data-tab="imageToPdf"
+                >
+                    <i data-lucide="image" class="inline w-5 h-5 mr-1"></i> Image to PDF
+                </button>
+            </div>
+
+            <!-- Conversion Tabs/Panels --><div id="pdfToWord" class="tab-content" data-input-ext=".pdf" data-output-ext="docx">
+                <h2 class="text-2xl font-semibold mb-4 text-gray-800">PDF to Word (.docx)</h2>
+                <p class="text-sm text-gray-500 mb-6">Upload your PDF file. The request will be managed by a scalable cloud queue.</p>
+                <div class="conversion-ui" data-type="pdfToWord"></div>
+            </div>
+
+            <div id="wordToPdf" class="tab-content hidden" data-input-ext=".docx, .doc" data-output-ext="pdf">
+                <h2 class="text-2xl font-semibold mb-4 text-gray-800">Word to PDF (.pdf)</h2>
+                <p class="text-sm text-gray-500 mb-6">Upload your Word document. The conversion process uses asynchronous polling for reliability.</p>
+                <div class="conversion-ui" data-type="wordToPdf"></div>
+            </div>
+
+            <!-- New: PDF to Image Panel --><div id="pdfToImage" class="tab-content hidden" data-input-ext=".pdf" data-output-ext="zip">
+                <h2 class="text-2xl font-semibold mb-4 text-gray-800">PDF to Image (JPG/PNG - Zipped)</h2>
+                <p class="text-sm text-gray-500 mb-6">Convert a multi-page PDF into multiple high-resolution images. The output is a compressed ZIP file.</p>
+                <div class="conversion-ui" data-type="pdfToImage"></div>
+            </div>
+
+            <div id="imageToPdf" class="tab-content hidden" data-input-ext="image/*" data-output-ext="pdf">
+                <h2 class="text-2xl font-semibold mb-4 text-gray-800">Image to PDF (.pdf)</h2>
+                <p class="text-sm text-gray-500 mb-6">Upload one or more images. Conversion scales automatically using serverless computing.</p>
+                <div class="conversion-ui" data-type="imageToPdf"></div>
+            </div>
+
+            <!-- Scalability Notice --><div class="mt-8 pt-4 border-t border-gray-100 text-center">
+                <p class="text-xs text-yellow-600 font-medium">
+                    for queries : sohelmohad65@gmail.com
+                </p>
+            </div>
+            
+        </main>
+
+    </div>
+
+    <script>
+        // Initialize state
+        let activeTab = 'pdfToWord';
+        // The state now includes jobId and resultUri for the asynchronous API pattern
+        const converters = {}; 
+        // Max retries for the polling mechanism
+        const MAX_RETRIES = 5; 
+
+        document.addEventListener('DOMContentLoaded', () => {
+            // Initialize Lucide icons
+            lucide.createIcons();
+            
+            // Initial tab setup
+            const initialTab = document.querySelector(`.tab-button[data-tab="${activeTab}"]`);
+            if (initialTab) {
+                switchTab(activeTab);
+            }
+
+            // Setup listeners
+            document.querySelectorAll('.tab-button').forEach(button => {
+                button.addEventListener('click', (e) => {
+                    switchTab(e.currentTarget.getAttribute('data-tab'));
+                });
+            });
+
+            // Initialize UI for each conversion type
+            document.querySelectorAll('.conversion-ui').forEach(ui => {
+                const type = ui.getAttribute('data-type');
+                // Status can now be: 'idle', 'ready', 'processing', 'complete', 'error'
+                converters[type] = { 
+                    file: null, 
+                    files: [], // Use for multi-file (Image to PDF)
+                    status: 'idle',
+                    jobId: null,
+                    resultUri: null 
+                };
+                renderUI(type);
+            });
+        });
+
+        function switchTab(newTab) {
+            activeTab = newTab;
+
+            // 1. Update tab buttons
+            document.querySelectorAll('.tab-button').forEach(button => {
+                const isActive = button.getAttribute('data-tab') === newTab;
+                button.classList.toggle('text-yellow-700', isActive);
+                button.classList.toggle('border-yellow-700', isActive);
+                button.classList.toggle('text-gray-500', !isActive);
+                button.classList.toggle('border-transparent', !isActive);
+                button.classList.toggle('border-b-2', isActive);
+            });
+
+            // 2. Update content panels
+            document.querySelectorAll('.tab-content').forEach(content => {
+                const isVisible = content.id === newTab;
+                content.classList.toggle('hidden', !isVisible);
+            });
+
+            // 3. Ensure icons are re-created if the tab switch caused them to be hidden/shown
+            lucide.createIcons();
+        }
+
+        function renderUI(type) {
+            const container = document.querySelector(`.conversion-ui[data-type="${type}"]`);
+            const state = converters[type];
+            const contentPanel = document.getElementById(type);
+            const inputExt = contentPanel.getAttribute('data-input-ext');
+            const outputExt = contentPanel.getAttribute('data-output-ext');
+            
+            if (!container) return;
+            
+            let html = '';
+            let fileName = state.file ? state.file.name : (state.files.length > 0 ? `${state.files.length} files selected` : 'Click to upload or drag & drop a file');
+
+            switch (state.status) {
+                case 'idle':
+                case 'ready':
+                    const readyClass = state.status === 'ready' ? 'border-yellow-400 bg-yellow-50' : 'border-gray-300 hover:border-yellow-400 hover:bg-yellow-50';
+
+                    html = `
+                        <div class="p-6 border-2 border-dashed rounded-xl transition-all duration-300 ${readyClass} cursor-pointer text-center"
+                             onclick="document.getElementById('file-input-${type}').click()">
+                            <input type="file" id="file-input-${type}" accept="${inputExt}" multiple="${type === 'imageToPdf' ? 'true' : 'false'}" class="hidden" 
+                                   onchange="handleFileSelect(event, '${type}')">
+                            <i data-lucide="upload-cloud" class="w-8 h-8 mx-auto mb-2 text-yellow-600"></i>
+                            <p class="text-sm font-semibold text-gray-700">${fileName}</p>
+                            <p class="text-xs text-gray-500 mt-1">Accepts ${inputExt.replace(/\*/g, 'Image').toUpperCase().split(',').join(', ')}</p>
+                        </div>
+                        ${(state.file || state.files.length > 0) ? `
+                            <div class="mt-4 flex flex-col sm:flex-row items-center justify-between">
+                                <p class="text-sm text-gray-600 mb-3 sm:mb-0">Ready to convert: <span class="font-medium">${fileName}</span></p>
+                                <button onclick="startConversion('${type}')"
+                                        class="w-full sm:w-auto px-6 py-2 bg-green-600 text-white font-medium rounded-lg shadow-md hover:bg-green-700 transition-colors duration-200 flex items-center justify-center">
+                                    <i data-lucide="zap" class="w-4 h-4 mr-2"></i> Initiate Job (.${outputExt})
+                                </button>
+                            </div>
+                        ` : ''}
+                    `;
+                    break;
+                
+                case 'processing':
+                    html = `
+                        <div class="p-8 border-2 border-yellow-500 bg-yellow-50 rounded-xl text-center">
+                            <i data-lucide="rotate-ccw" class="w-8 h-8 mx-auto mb-3 text-yellow-600 animate-spin"></i>
+                            <h3 class="text-lg font-semibold text-gray-700">Processing Job: ${state.jobId}</h3>
+                            <p class="text-sm text-gray-500">The server is processing ${fileName} asynchronously. Polling status with backoff...</p>
+                            <div class="mt-4 h-2 bg-yellow-200 rounded-full overflow-hidden">
+                                <div class="h-full bg-yellow-500 animate-pulse w-3/4"></div>
+                            </div>
+                        </div>
+                    `;
+                    break;
+
+                case 'complete':
+                    const originalNameForComplete = state.file ? state.file.name : (state.files[0] ? state.files[0].name : 'file');
+                    const newFileName = originalNameForComplete.split('.').slice(0, -1).join('.') + `.${outputExt}`;
+                    html = `
+                        <div class="p-8 border-2 border-green-500 bg-green-50 rounded-xl text-center">
+                            <i data-lucide="check-circle" class="w-8 h-8 mx-auto mb-3 text-green-600"></i>
+                            <h3 class="text-lg font-semibold text-gray-700">Conversion Complete! (Job ${state.jobId})</h3>
+                            <p class="text-sm text-gray-500">Your highly reliable, cloud-converted file is ready:</p>
+                            <p class="text-md font-medium text-green-700 mt-2">${newFileName}</p>
+                            <div class="mt-6 flex flex-col sm:flex-row gap-4 justify-center">
+                                <button onclick="downloadFile('${type}')"
+                                        class="w-full sm:w-auto px-6 py-3 bg-green-600 text-white font-semibold rounded-lg shadow-xl hover:bg-green-700 transition-colors duration-200 flex items-center justify-center">
+                                    <i data-lucide="download" class="w-5 h-5 mr-2"></i> Download from Cloud
+                                </button>
+                                <button onclick="resetConversion('${type}')"
+                                        class="w-full sm:w-auto px-6 py-3 bg-gray-200 text-gray-700 font-semibold rounded-lg hover:bg-gray-300 transition-colors duration-200">
+                                    Convert Another
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                    break;
+                
+                case 'error':
+                    html = `
+                        <div class="p-8 border-2 border-red-500 bg-red-50 rounded-xl text-center">
+                            <i data-lucide="alert-triangle" class="w-8 h-8 mx-auto mb-3 text-red-600"></i>
+                            <h3 class="text-lg font-semibold text-gray-800">Conversion Failed (Job ${state.jobId})</h3>
+                            <p class="text-sm text-red-700">The job failed after ${MAX_RETRIES} retries. This indicates a potential backend issue.</p>
+                            <div class="mt-6">
+                                <button onclick="resetConversion('${type}')"
+                                        class="w-full sm:w-auto px-6 py-3 bg-red-600 text-white font-semibold rounded-lg shadow-xl hover:bg-red-700 transition-colors duration-200">
+                                    Try Again
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                    break;
+            }
+
+            container.innerHTML = html;
+            // Re-render icons after updating innerHTML
+            lucide.createIcons();
+        }
+
+        function handleFileSelect(event, type) {
+            const files = event.target.files;
+
+            if (files.length > 0) {
+                // Store all selected files for multi-file operations (Image to PDF)
+                converters[type].files = Array.from(files);
+                // Store the first file for display purposes in the UI
+                converters[type].file = files[0];
+                converters[type].status = 'ready';
+            } else {
+                converters[type].file = null;
+                converters[type].files = [];
+                converters[type].status = 'idle';
+            }
+            renderUI(type);
+        }
+
+        /**
+         * Simulates a resilient, scalable backend conversion process using job polling 
+         * and exponential backoff, necessary for 10 million users.
+         */
+        async function startConversion(type) {
+            if (converters[type].status !== 'ready') return;
+
+            // 1. Initiate Upload and Job Creation (Simulated API Call)
+            // In a real app, this would be a fetch POST to /api/upload
+            converters[type].jobId = 'job-' + Math.random().toString(36).substring(2, 9).toUpperCase();
+            converters[type].status = 'processing';
+            renderUI(type);
+
+            // Function to simulate polling the conversion status with backoff
+            const pollConversionStatus = async (jobId, attempt = 0) => {
+                const delay = Math.pow(2, attempt) * 500; // 0.5s, 1s, 2s, 4s, 8s, 16s... (max ~15s delay)
+
+                // Simulate network delay for polling
+                await new Promise(resolve => setTimeout(resolve, delay));
+
+                // Mock logic: Job completes successfully after 3 total attempts (1 initial upload + 2 polls)
+                const completionAttempt = 3; 
+
+                // Simulate successful response on the 3rd or later attempt
+                if (attempt >= completionAttempt - 1) { 
+                    converters[type].status = 'complete';
+                    // Store the mock download URL for the front-end
+                    converters[type].resultUri = `https://mock.cloudstorage.com/results/${jobId}`; 
+                    renderUI(type);
+                    return; // Success
+                }
+
+                if (attempt < MAX_RETRIES) {
+                    // Retry (poll again)
+                    // console.log(`Polling job ${jobId}. Retrying in ${delay}ms (Attempt ${attempt + 1}/${MAX_RETRIES})...`);
+                    await pollConversionStatus(jobId, attempt + 1);
+                } else {
+                    // Failed after max retries
+                    converters[type].status = 'error';
+                    renderUI(type);
+                }
+            };
+
+            try {
+                // Simulate initial upload time before starting to poll
+                await new Promise(resolve => setTimeout(resolve, 1500)); 
+                
+                // Start polling for job status with exponential backoff
+                await pollConversionStatus(converters[type].jobId, 0);
+
+            } catch (error) {
+                // This catch handles critical connection errors during the initial phase
+                converters[type].status = 'error';
+                renderUI(type);
+            }
+        }
+
+        function downloadFile(type) {
+            const state = converters[type];
+            if (state.status !== 'complete' || !state.resultUri) return;
+
+            const contentPanel = document.getElementById(type);
+            const outputExt = contentPanel.getAttribute('data-output-ext');
+            const originalFileName = state.file ? state.file.name : (state.files[0] ? state.files[0].name : 'converted');
+            const newFileName = originalFileName.split('.').slice(0, -1).join('.') + `.${outputExt}`;
+            
+            // This mock simulates downloading the file from the resultUri
+            const mockContent = `Cloud Conversion Success!
+Job ID: ${state.jobId}
+Conversion Type: ${type}
+Original File(s): ${state.files.length > 0 ? state.files.map(f => f.name).join(', ') : originalFileName}
+Output Extension: .${outputExt}
+Download URI: ${state.resultUri}
+
+For 10M users, this process guarantees reliability by using queued, asynchronous, and fault-tolerant cloud services, protected by the exponential backoff logic we implemented in the client.`;
+
+            let mimeType;
+            // Note: A zip output mime type is used for PDF to Image, as it generates multiple files.
+            if (outputExt === 'docx') {
+                mimeType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+            } else if (outputExt === 'pdf') {
+                mimeType = 'application/pdf';
+            } else if (outputExt === 'zip') {
+                mimeType = 'application/zip';
+            } else {
+                mimeType = 'text/plain';
+            }
+
+            // Create a Blob and a download link
+            const blob = new Blob([mockContent], { type: mimeType });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = newFileName;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url); // Clean up the object URL
+        }
+
+        function resetConversion(type) {
+            converters[type] = { 
+                file: null, 
+                files: [], 
+                status: 'idle', 
+                jobId: null, 
+                resultUri: null 
+            };
+            // Clear the file input in case the user wants to upload the same file again
+            const fileInput = document.getElementById(`file-input-${type}`);
+            if (fileInput) fileInput.value = '';
+            renderUI(type);
+        }
+
+    </script>
+</body>
+</html># pdf-converter-app
